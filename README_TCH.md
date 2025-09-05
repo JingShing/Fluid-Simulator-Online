@@ -2,6 +2,10 @@
 
 # 網頁流體重力模擬
 
+## 線上預覽
+
+[fluid Simulator | JingShing](https://jingshing.com/fluidsim/)
+
 ## 如何使用
 
 - `web-fluidsim.html` 下載後直接開啟

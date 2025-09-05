@@ -2,6 +2,10 @@ English | [繁體中文](README_TCH.md)
 
 # Fluid Gravity Simulator Web
 
+## Online Preview
+
+[fluid Simulator | JingShing](https://jingshing.com/fluidsim/)
+
 ## How to Use
 
 - Download `web-fluidsim.html` and open it directly.
