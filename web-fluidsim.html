@@ -38,6 +38,32 @@
   input[type="color"] { background:none; border:none; width:48px; height:28px; padding:0; }
   select { background:#0f1724; color:#cde1ff; border:1px solid #2c3e5c; border-radius:8px; padding:6px 8px; }
   .toggle-inline { display:inline-flex; align-items:center; gap:8px; }
+
+  /* === overlay mode (drawer) === */
+.backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.35);
+  backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s ease;
+  z-index: 900;
+}
+.backdrop.show { opacity: 1; pointer-events: auto; }
+
+.wrap.overlay { grid-template-columns: 1fr; }
+
+.wrap.overlay .panel.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 340px;
+  transform: translateX(-100%);
+  transition: transform .25s ease;
+  z-index: 1000;
+  border-right: 1px solid #1c2636;
+}
+.wrap.overlay .panel.sidebar.open { transform: translateX(0); }
+
+.wrap.overlay .sidebarInner { height: 100vh; }
+
+.wrap.overlay ~ #reopenBtn { left: 10px; top: 10px; }
 </style>
 </head>
 <body>
@@ -82,6 +108,10 @@
         <div class="row"><label id="gridLabel">格子尺寸</label><div class="val"><span id="gridVal">56</span></div></div>
         <input id="gridRange" type="range" min="20" max="90" step="2" value="86"/>
 
+        <div class="row"><label id="borderLabel">邊界比例</label><div class="val"><span id="borderVal">0.45</span></div></div>
+        <input id="borderRange" type="range" min="0.30" max="0.49" step="0.01" value="0.45"/>
+
+
         <div class="row"><label id="gLabel">重力倍率</label><div class="val"><span id="gVal">1.0</span>×</div></div>
         <input id="gRange" type="range" min="0.2" max="3" step="0.1" value="1.0"/>
 
@@ -91,15 +121,15 @@
         <div class="row"><label id="invertLabel">手機反向</label>
           <div class="toggle-inline">
             <label class="small"><input id="invX" type="checkbox"> X</label>
-            <label class="small"><input id="invY" type="checkbox" checked> Y</label>
+            <label class="small"><input id="invY" type="checkbox"> Y</label>
           </div>
         </div>
 
         <div class="row"><label id="uniqLabel">每格最多一顆（實驗）</label><div class="val"><span id="uniqVal">關</span></div></div>
-        <input id="uniqToggle" type="checkbox" checked/>
+        <input id="uniqToggle" type="checkbox"/>
 
         <div class="row"><label id="outlineLabel">邊框線</label><div class="val"><span id="outlineVal">關</span></div></div>
-        <input id="outlineToggle" type="checkbox" checked/>
+        <input id="outlineToggle" type="checkbox"/>
 
         <div class="sep"></div>
 
@@ -133,6 +163,7 @@
 </div>
 
 <button id="reopenBtn" class="btn inline" aria-label="Open sidebar">☰</button>
+<div id="overlayBackdrop" class="backdrop"></div>
 
 <script>
 (() => {
@@ -158,7 +189,7 @@
       iter:"碰撞迭代", rest:"碰撞彈性（強度）", grid:"格子尺寸", g:"重力倍率", d:"阻尼（摩擦）",
       invert:"手機反向", uniq:"每格最多一顆（實驗）", outline:"邊框線",
       toggleRender:"切換渲染（格子 / 小球）", reset:"重置粒子", enableSensors:"啟用手機感測器",
-      calib:"重設基準", desktopInput:"桌機輸入", zeroG:"暫停重力", load:"計算負載", on:"開", off:"關" },
+      calib:"重設基準", desktopInput:"桌機輸入", zeroG:"暫停重力", load:"計算負載", on:"開", off:"關",border: "邊界比例", },
     en: { title:"Fluid Gravity Simulation", collapse:"Collapse", expand:"Open sidebar", mode_grid:"Mode: Grid", mode_balls:"Mode: Particles",
       input_pc:"Input: Desktop", input_phone:"Input: Mobile", theme_default:"Theme: Default", theme_custom:"Theme: Custom",
       note:'Desktop: use <span class="kbd">mouse drag</span> or <span class="kbd">arrow keys</span> to change gravity. Phone: tap "Enable Sensors".<br/>This build: <b>circular boundary</b>, <b>stronger particle collisions</b>, <b>adjustable particle size</b>, optional <b>one per cell</b>.',
@@ -166,7 +197,7 @@
       iter:"Collision iterations", rest:"Collision restitution (strength)", grid:"Grid size", g:"Gravity multiplier", d:"Damping (friction)",
       invert:"Mobile invert", uniq:"One-per-cell (experimental)", outline:"Cell outline",
       toggleRender:"Toggle render (Grid / Particles)", reset:"Reset particles", enableSensors:"Enable phone sensors",
-      calib:"Re-calibrate", desktopInput:"Desktop input", zeroG:"Zero gravity", load:"CPU load", on:"On", off:"Off" }
+      calib:"Re-calibrate", desktopInput:"Desktop input", zeroG:"Zero gravity", load:"CPU load", on:"On", off:"Off", border: "Boundary scale", }
   };
   let lang = localStorage.getItem('lang') || 'zh';
   const T = (k)=> I18N[lang][k];
@@ -484,7 +515,8 @@
     uniqVal.textContent = PER_CELL_UNIQUE ? T('on') : T('off');
     outlineVal.textContent = SHOW_OUTLINE ? T('on') : T('off');
     themeBadge.textContent = (baseColor === '#0078ff') ? T('theme_default') : T('theme_custom');
-    reopenBtn.textContent = T('expand');
+    reopenBtn.textContent = T('expand');  
+    document.getElementById('borderLabel').textContent = T('border');
   }
 
   // ===== UI values sync =====
@@ -499,6 +531,57 @@
     modeBadge.textContent = (renderMode==='grid') ? T('mode_grid') : T('mode_balls');
     inputBadge.textContent = usingMobileInput ? T('input_phone') : T('input_pc');
   }
+  
+  // border size
+const borderRange = document.getElementById('borderRange');
+const borderVal   = document.getElementById('borderVal');
+let BORDER_SCALE = parseFloat(localStorage.getItem('borderScale') || borderRange?.value || '0.45');
+
+if(borderRange){
+  borderRange.value = BORDER_SCALE.toFixed(2);
+  borderVal.textContent = BORDER_SCALE.toFixed(2);
+  borderRange.addEventListener('input', ()=>{
+    BORDER_SCALE = parseFloat(borderRange.value);
+    borderVal.textContent = BORDER_SCALE.toFixed(2);
+    localStorage.setItem('borderScale', BORDER_SCALE.toString());
+    containerRadius = Math.min(CSS_W, CSS_H) * BORDER_SCALE;
+  });
+}
+
+  // setting overlay
+  const backdrop = document.getElementById('overlayBackdrop');
+  const isMobile = window.matchMedia('(pointer:coarse), (max-width: 880px)');
+
+function openDrawer(){
+  wrap.classList.add('overlay');
+  document.querySelector('.panel.sidebar').classList.add('open');
+  backdrop.classList.add('show');
+}
+
+function closeDrawer(){
+  document.querySelector('.panel.sidebar').classList.remove('open');
+  backdrop.classList.remove('show');
+  setTimeout(()=> wrap.classList.remove('overlay'), 250);
+}
+
+function setCollapsed(v){
+  if(v){ wrap.classList.add('collapsed'); localStorage.setItem('sidebarCollapsed','1'); }
+  else { wrap.classList.remove('collapsed'); localStorage.setItem('sidebarCollapsed','0'); }
+  if(!isMobile.matches) resize();
+}
+const collapsedSaved = localStorage.getItem('sidebarCollapsed') === '1';
+if(!isMobile.matches) setCollapsed(collapsedSaved);
+
+collapseBtn.addEventListener('click', ()=>{
+  if(isMobile.matches) closeDrawer();
+  else setCollapsed(true);
+});
+reopenBtn.addEventListener('click', ()=>{
+  if(isMobile.matches) openDrawer();
+  else setCollapsed(false);
+});
+backdrop.addEventListener('click', closeDrawer);
+
 
   // ===== UI handlers =====
   langSel.value = lang;
@@ -507,7 +590,6 @@
   colorPicker.value = baseColor;
   colorPicker.addEventListener('input', ()=> setBaseColor(colorPicker.value));
 
-  const collapsedSaved = localStorage.getItem('sidebarCollapsed') === '1';
   function setCollapsed(v){ if(v){ wrap.classList.add('collapsed'); localStorage.setItem('sidebarCollapsed','1'); } else { wrap.classList.remove('collapsed'); localStorage.setItem('sidebarCollapsed','0'); } resize(); }
   setCollapsed(collapsedSaved);
   collapseBtn.addEventListener('click', ()=> setCollapsed(true));
