@@ -1,0 +1,556 @@
+<!-- author: JingShing -->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>流體重力模擬</title>
+<style>
+  :root { --bg:#0b0f17; --panel:#121826; --text:#e6edf3; --muted:#8b97a8; --accent:#4da3ff; }
+  html, body { margin:0; height:100%; background: radial-gradient(1200px 800px at 30% 10%, #142033, var(--bg)); color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", Helvetica, Arial, "Apple Color Emoji","Noto Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif; }
+  .wrap { display:grid; grid-template-columns: 340px 1fr; gap:16px; height:100%; padding:16px; box-sizing:border-box; transition: grid-template-columns .25s ease; }
+  .wrap.collapsed { grid-template-columns: 0 1fr; }
+  .panel { background: linear-gradient(180deg,#101724,#0f1724); border:1px solid #1c2636; border-radius:12px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03); display:flex; flex-direction:column; min-height:0; }
+  .panel.sidebar { overflow:hidden; transition: padding .25s ease, border-color .25s ease; }
+  .wrap.collapsed .panel.sidebar { padding:0; border-color:transparent; }
+  .sidebarInner { height:100%; overflow:auto; padding-right:6px; }
+  h1 { font-size:18px; margin:0 0 10px; letter-spacing:.5px; }
+  .controls { display:grid; gap:10px; }
+  .row { display:grid; grid-template-columns: 1fr auto; align-items:center; gap:10px; }
+  .row label { color:var(--muted); font-size:13px; }
+  .row .val { font-variant-numeric: tabular-nums; color:#cde1ff; }
+  .btn { background: linear-gradient(180deg,#23334c,#1a2a44); border:1px solid #2c3e5c; color:#dbe9ff; border-radius:10px; padding:10px 12px; cursor:pointer; user-select:none; font-weight:600; letter-spacing:.2px; transition: transform .05s ease, background .3s ease, border .3s ease, box-shadow .3s ease; box-shadow:0 2px 8px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.04); }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.secondary { background: linear-gradient(180deg,#1b263b,#162236); color:#c5d6f2; }
+  .btn.inline { padding:6px 10px; font-size:12px; }
+  .note { font-size:12px; color:#9fb4d3; line-height:1.5; border-left:3px solid #2c3e5c; padding-left:10px; margin:6px 0 12px; }
+  .meter { height:10px; border-radius:7px; background:#0f1624; border:1px solid #22324c; overflow:hidden; }
+  .meter > div { height:100%; background: linear-gradient(90deg,#4da3ff,#76d6ff); width:0%; transition: width .08s linear; }
+  #canvasWrap { position:relative; background: radial-gradient(800px 600px at 60% 40%, #0c1423, #050a14); border:1px solid #142038; border-radius:12px; overflow:hidden; display:grid; place-items:center; }
+  canvas { display:block; }
+  .badgelist { display:flex; flex-wrap:wrap; gap:8px; }
+  .badge { border:1px solid #2c3e5c; background:#0f1724; color:#cde1ff; font-size:12px; padding:4px 8px; border-radius:999px; }
+  .sep { border-top:1px dashed #203050; margin:8px 0; }
+  .small { font-size:12px; color:#8aa0c2; }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Noto Sans Mono", monospace; background:#0c1321; color:#cde1ff; padding:0 6px; border-radius:6px; border:1px solid #22324c;}
+  #reopenBtn { position: fixed; left: 10px; top: 10px; z-index: 999; display:none; font-size: 30px;}
+  .wrap.collapsed ~ #reopenBtn { display:block; }
+  input[type="color"] { background:none; border:none; width:48px; height:28px; padding:0; }
+  select { background:#0f1724; color:#cde1ff; border:1px solid #2c3e5c; border-radius:8px; padding:6px 8px; }
+  .toggle-inline { display:inline-flex; align-items:center; gap:8px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <div class="panel sidebar">
+    <div class="sidebarInner">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <h1 id="title">流體重力模擬</h1>
+        <button class="btn inline" id="collapseBtn">收起</button>
+      </div>
+      <div class="controls">
+        <div class="badgelist">
+          <div class="badge" id="modeBadge">模式：格子</div>
+          <div class="badge" id="inputBadge">輸入：桌機</div>
+          <div class="badge" id="themeBadge">主題：預設</div>
+        </div>
+
+        <div class="note" id="noteText">
+          桌機：<span class="kbd">滑鼠拖曳</span> 或 <span class="kbd">↑ ↓ ← →</span> 改變重力。手機：點「啟用手機感測器」。<br/>
+          此版：<b>圓形邊界</b>、<b>強化粒子碰撞</b>、<b>可調粒子大小</b>、（選配）<b>每格最多一顆</b>。
+        </div>
+
+        <div class="row"><label id="langLabel">語言/Language</label><div><select id="langSel">
+          <option value="zh">繁體中文</option>
+          <option value="en">English</option>
+        </select></div></div>
+
+        <div class="row"><label id="nLabel">粒子數</label><div class="val"><span id="nVal">700</span></div></div>
+        <input id="nRange" type="range" min="100" max="3000" step="100" value="700"/>
+
+        <div class="row"><label id="colorLabel">粒子顏色</label><input id="colorPicker" type="color" value="#0078ff"/></div>
+
+        <div class="row"><label id="rLabel">粒子大小（半徑px）</label><div class="val"><span id="rVal">4</span></div></div>
+        <input id="rRange" type="range" min="2" max="14" step="1" value="4"/>
+
+        <div class="row"><label id="iterLabel">碰撞迭代</label><div class="val"><span id="iterVal">3</span> 次</div></div>
+        <input id="iterRange" type="range" min="1" max="8" step="1" value="3"/>
+
+        <div class="row"><label id="restLabel">碰撞彈性（強度）</label><div class="val"><span id="restVal">0.50</span></div></div>
+        <input id="restRange" type="range" min="0" max="0.9" step="0.05" value="0.50"/>
+
+        <div class="row"><label id="gridLabel">格子尺寸</label><div class="val"><span id="gridVal">56</span></div></div>
+        <input id="gridRange" type="range" min="20" max="90" step="2" value="86"/>
+
+        <div class="row"><label id="gLabel">重力倍率</label><div class="val"><span id="gVal">1.0</span>×</div></div>
+        <input id="gRange" type="range" min="0.2" max="3" step="0.1" value="1.0"/>
+
+        <div class="row"><label id="dLabel">阻尼（摩擦）</label><div class="val"><span id="dVal">0.995</span></div></div>
+        <input id="dRange" type="range" min="0.96" max="0.999" step="0.001" value="0.995"/>
+
+        <div class="row"><label id="invertLabel">手機反向</label>
+          <div class="toggle-inline">
+            <label class="small"><input id="invX" type="checkbox"> X</label>
+            <label class="small"><input id="invY" type="checkbox" checked> Y</label>
+          </div>
+        </div>
+
+        <div class="row"><label id="uniqLabel">每格最多一顆（實驗）</label><div class="val"><span id="uniqVal">關</span></div></div>
+        <input id="uniqToggle" type="checkbox" checked/>
+
+        <div class="row"><label id="outlineLabel">邊框線</label><div class="val"><span id="outlineVal">關</span></div></div>
+        <input id="outlineToggle" type="checkbox" checked/>
+
+        <div class="sep"></div>
+
+        <div class="row">
+          <button class="btn" id="toggleMode">切換渲染（格子 / 小球）</button>
+          <button class="btn secondary" id="resetBtn">重置粒子</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="enableSensorsBtn">啟用手機感測器</button>
+          <button class="btn secondary" id="calibBtn">重設基準</button>
+        </div>
+        <div class="row">
+          <button class="btn secondary" id="desktopInputBtn">桌機輸入</button>
+          <button class="btn secondary" id="zeroG">暫停重力</button>
+        </div>
+
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="small" id="loadLabel">計算負載</span>
+            <span class="small" id="fpsLabel">FPS: --</span>
+          </div>
+          <div class="meter"><div id="cpuMeter"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="canvasWrap" class="panel">
+    <canvas id="sim"></canvas>
+  </div>
+</div>
+
+<button id="reopenBtn" class="btn inline" aria-label="Open sidebar">☰</button>
+
+<script>
+(() => {
+  // ====== Utils ======
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const rand=(a,b)=>a+Math.random()*(b-a);
+
+  // ---- Color helpers
+  const hexToRgb = (hex)=>{ const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex); return m?{r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)}:{r:0,g:0,b:0}; };
+  const rgbToHsl=({r,g,b})=>{ r/=255; g/=255; b/=255; const max=Math.max(r,g,b),min=Math.min(r,g,b); let h,s,l=(max+min)/2; if(max===min){h=s=0;}else{const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min); switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;} h/=6;} return {h,s,l}; };
+  const hslToRgb=({h,s,l})=>{ let r,g,b; if(s===0){r=g=b=l;}else{ const hue2rgb=(p,q,t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; }; const q=l<0.5?l*(1+s):l+s-l*s; const p=2*l-q; r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);} return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)}; };
+  const rgbToHex=({r,g,b})=> '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+  const clamp01=(x)=>Math.max(0,Math.min(1,x));
+  const lighten=(hex,dl=0.42,ds=-0.35)=>{ const hsl=rgbToHsl(hexToRgb(hex)); hsl.l=clamp01(hsl.l+dl); hsl.s=clamp01(hsl.s+ds); return rgbToHex(hslToRgb(hsl)); };
+  const lightOrDark=(hex,dl,ds)=>{ const hsl=rgbToHsl(hexToRgb(hex)); hsl.l=clamp01(hsl.l - dl); hsl.s=clamp01(hsl.s + ds); return rgbToHex(hslToRgb(hsl)); };
+
+  // ====== i18n ======
+  const I18N = {
+    zh: { title:"流體重力模擬", collapse:"收起", expand:"展開側邊欄", mode_grid:"模式：格子", mode_balls:"模式：小球",
+      input_pc:"輸入：桌機", input_phone:"輸入：手機", theme_default:"主題：預設", theme_custom:"主題：自訂",
+      note:'桌機：<span class="kbd">滑鼠拖曳</span> 或 <span class="kbd">↑ ↓ ← →</span> 改變重力。手機：點「啟用手機感測器」。<br/>此版：<b>圓形邊界</b>、<b>強化粒子碰撞</b>、<b>可調粒子大小</b>、（選配）<b>每格最多一顆</b>。',
+      lang:"語言", zh:"繁體中文", en:"English", n:"粒子數", color:"粒子顏色", r:"粒子大小（半徑px）",
+      iter:"碰撞迭代", rest:"碰撞彈性（強度）", grid:"格子尺寸", g:"重力倍率", d:"阻尼（摩擦）",
+      invert:"手機反向", uniq:"每格最多一顆（實驗）", outline:"邊框線",
+      toggleRender:"切換渲染（格子 / 小球）", reset:"重置粒子", enableSensors:"啟用手機感測器",
+      calib:"重設基準", desktopInput:"桌機輸入", zeroG:"暫停重力", load:"計算負載", on:"開", off:"關" },
+    en: { title:"Fluid Gravity Simulation", collapse:"Collapse", expand:"Open sidebar", mode_grid:"Mode: Grid", mode_balls:"Mode: Particles",
+      input_pc:"Input: Desktop", input_phone:"Input: Mobile", theme_default:"Theme: Default", theme_custom:"Theme: Custom",
+      note:'Desktop: use <span class="kbd">mouse drag</span> or <span class="kbd">arrow keys</span> to change gravity. Phone: tap "Enable Sensors".<br/>This build: <b>circular boundary</b>, <b>stronger particle collisions</b>, <b>adjustable particle size</b>, optional <b>one per cell</b>.',
+      lang:"Language", zh:"Chinese (Traditional)", en:"English", n:"Particle count", color:"Particle color", r:"Particle size (px radius)",
+      iter:"Collision iterations", rest:"Collision restitution (strength)", grid:"Grid size", g:"Gravity multiplier", d:"Damping (friction)",
+      invert:"Mobile invert", uniq:"One-per-cell (experimental)", outline:"Cell outline",
+      toggleRender:"Toggle render (Grid / Particles)", reset:"Reset particles", enableSensors:"Enable phone sensors",
+      calib:"Re-calibrate", desktopInput:"Desktop input", zeroG:"Zero gravity", load:"CPU load", on:"On", off:"Off" }
+  };
+  let lang = localStorage.getItem('lang') || 'zh';
+  const T = (k)=> I18N[lang][k];
+
+  // ====== Palette from base color ======
+  function makePalette(baseHex){ return { liquid: baseHex, foam: lighten(baseHex), rimTrans: lightOrDark(baseHex,-0.08,0.0), rimLight: lightOrDark(baseHex,0.30,0.10) }; }
+  let baseColor = localStorage.getItem('baseColor') || '#0078ff';
+  let palette = makePalette(baseColor);
+  function setBaseColor(hex){ baseColor=hex; localStorage.setItem('baseColor', baseColor); palette=makePalette(baseColor); themeBadge.textContent = (baseColor === '#0078ff') ? T('theme_default') : T('theme_custom'); }
+
+  // ====== DOM ======
+  const wrap = document.getElementById('wrap');
+  const cvs=document.getElementById('sim'); const ctx=cvs.getContext('2d'); const canvasWrap=document.getElementById('canvasWrap');
+  const titleEl = document.getElementById('title');
+  const modeBadge=document.getElementById('modeBadge'), inputBadge=document.getElementById('inputBadge'), themeBadge=document.getElementById('themeBadge');
+  const noteText=document.getElementById('noteText');
+  const langSel=document.getElementById('langSel'); const langLabel=document.getElementById('langLabel');
+  const nRange=document.getElementById('nRange'), nVal=document.getElementById('nVal');
+  const colorPicker=document.getElementById('colorPicker'), colorLabel=document.getElementById('colorLabel');
+  const rRange=document.getElementById('rRange'), rVal=document.getElementById('rVal');
+  const iterRange=document.getElementById('iterRange'), iterVal=document.getElementById('iterVal');
+  const restRange=document.getElementById('restRange'), restVal=document.getElementById('restVal');
+  const gridRange=document.getElementById('gridRange'), gridVal=document.getElementById('gridVal');
+  const gRange=document.getElementById('gRange'), gVal=document.getElementById('gVal');
+  const dRange=document.getElementById('dRange'), dVal=document.getElementById('dVal');
+  const uniqToggle=document.getElementById('uniqToggle'), uniqVal=document.getElementById('uniqVal');
+  const outlineToggle=document.getElementById('outlineToggle'), outlineVal=document.getElementById('outlineVal');
+  const toggleModeBtn=document.getElementById('toggleMode'), resetBtn=document.getElementById('resetBtn');
+  const enableSensorsBtn=document.getElementById('enableSensorsBtn'), calibBtn=document.getElementById('calibBtn');
+  const desktopInputBtn=document.getElementById('desktopInputBtn'), zeroG=document.getElementById('zeroG');
+  const cpuMeter=document.getElementById('cpuMeter'), fpsLabel=document.getElementById('fpsLabel');
+  const loadLabel=document.getElementById('loadLabel');
+  const collapseBtn=document.getElementById('collapseBtn'); const reopenBtn=document.getElementById('reopenBtn');
+  const invertLabel=document.getElementById('invertLabel'); const invXEl=document.getElementById('invX'); const invYEl=document.getElementById('invY');
+
+  // ====== Sim params ======
+  let NUM=parseInt(nRange.value,10);
+  let PART_R=parseInt(rRange.value,10);
+  let COL_ITERS=parseInt(iterRange.value,10);
+  let COL_REST=parseFloat(restRange.value);
+  let GRID=parseInt(gridRange.value,10);
+  let GAIN=parseFloat(gRange.value);
+  let DAMP=parseFloat(dRange.value);
+  let PER_CELL_UNIQUE=false;
+  let SHOW_OUTLINE=false;
+
+  // invert settings (mobile)
+  let invertX = localStorage.getItem('invX') === '1';
+  let invertY = localStorage.getItem('invY') === '1';
+  invXEl.checked = invertX; invYEl.checked = invertY;
+
+  // grid accumulators
+  let gridCount=new Uint16Array(GRID*GRID);
+  let gridSpeed=new Float32Array(GRID*GRID);
+
+  // neighbor grid
+  let NX=64, NY=64, CELL_N=8;
+
+  // ====== Canvas sizing (DPR-aware) ======
+  let CSS_W=800, CSS_H=600, DPR=Math.max(1,window.devicePixelRatio||1);
+  let cx=CSS_W/2, cy=CSS_H/2;
+  let containerRadius=Math.min(CSS_W, CSS_H)*0.45;
+
+  function rebuildGridBuffers(){ gridCount=new Uint16Array(GRID*GRID); gridSpeed=new Float32Array(GRID*GRID); }
+  function rebuildNeighborGrid(){ const diam=2*PART_R; CELL_N=Math.max(8, Math.floor(diam)); NX=Math.max(8, Math.ceil(CSS_W/CELL_N)); NY=Math.max(8, Math.ceil(CSS_H/CELL_N)); }
+
+  function resize(){
+    const rect=canvasWrap.getBoundingClientRect();
+    CSS_W=Math.max(100,Math.floor(rect.width-2));
+    CSS_H=Math.max(100,Math.floor(rect.height-2));
+    DPR=Math.max(1,window.devicePixelRatio||1);
+    cvs.width=Math.floor(CSS_W*DPR); cvs.height=Math.floor(CSS_H*DPR);
+    cvs.style.width=CSS_W+'px'; cvs.style.height=CSS_H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    cx=CSS_W/2; cy=CSS_H/2;
+    containerRadius=Math.min(CSS_W, CSS_H)*0.45;
+    rebuildGridBuffers(); rebuildNeighborGrid();
+  }
+  window.addEventListener('resize', resize, {passive:true});
+
+  // ====== gravity ======
+  let gx=0, gy=1500*GAIN;
+
+  // ====== particles ======
+  const P=[];
+  function reseed(){
+    P.length=0;
+    const inner=containerRadius - PART_R - 2;
+    for(let i=0;i<NUM;i++){
+      const a=Math.random()*Math.PI*2;
+      const r=Math.sqrt(Math.random())*inner;
+      P.push({ x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r, vx: rand(-20,20), vy: rand(-20,20) });
+    }
+  }
+
+  // ====== input ======
+  let usingMobileInput=false, key={ArrowUp:false,ArrowDown:false,ArrowLeft:false,ArrowRight:false};
+  let mouseDown=false, mouseX=0, mouseY=0;
+  document.addEventListener('keydown',e=>{ if(e.key in key) key[e.key]=true; });
+  document.addEventListener('keyup',e=>{ if(e.key in key) key[e.key]=false; });
+  cvs.addEventListener('pointerdown',e=>{ mouseDown=true; const r=cvs.getBoundingClientRect(); mouseX=e.clientX-r.left; mouseY=e.clientY-r.top; });
+  window.addEventListener('pointerup',()=>mouseDown=false);
+  window.addEventListener('pointermove',e=>{ if(!mouseDown)return; const r=cvs.getBoundingClientRect(); mouseX=e.clientX-r.left; mouseY=e.clientY-r.top; });
+
+  function applyDesktopInput(){
+    let gx_=0, gy_=0;
+    if(key.ArrowUp) gy_-=1; if(key.ArrowDown) gy_+=1; if(key.ArrowLeft) gx_-=1; if(key.ArrowRight) gx_+=1;
+    if(mouseDown){ const dx=(mouseX-cx)/containerRadius, dy=(mouseY-cy)/containerRadius; gx_+=dx*2.2; gy_+=dy*2.2; }
+    const mag=Math.hypot(gx_,gy_);
+    if(mag>1e-3){ gx=(gx_/mag)*1500*GAIN; gy=(gy_/mag)*1500*GAIN; }
+  }
+
+  // ====== sensors (orientation only; no shake color change) ======
+  let oriOffset={beta:0,gamma:0}, lastBeta=0, lastGamma=0;
+  function requestMotionPermission(){
+    if(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission==='function'){
+      DeviceOrientationEvent.requestPermission?.().catch(()=>{}); // best effort
+      DeviceMotionEvent.requestPermission().then(s=>{
+        if(s==='granted'){ usingMobileInput=true; window.addEventListener('deviceorientation', onOrientation, {passive:true}); syncUITexts(); syncUIValues(); }
+        else alert(lang==='zh'?'權限被拒。':'Permission denied.');
+      }).catch(err=>alert((lang==='zh'?'感測器錯誤：':'Sensor error: ')+err));
+    }else{
+      usingMobileInput=true;
+      if(window.DeviceOrientationEvent){ window.addEventListener('deviceorientation', onOrientation, {passive:true}); }
+      else alert(lang==='zh'?'此裝置/瀏覽器不支援方向感測。':'Device orientation not supported.');
+      syncUITexts(); syncUIValues();
+    }
+  }
+  function calibrateBaseline(){ oriOffset.beta=lastBeta; oriOffset.gamma=lastGamma; }
+  function onOrientation(e){
+    lastBeta=e.beta??0; lastGamma=e.gamma??0;
+    const beta=(lastBeta-oriOffset.beta)*Math.PI/180, gamma=(lastGamma-oriOffset.gamma)*Math.PI/180;
+    const sx = invertX ? -1 : 1;
+    const sy = invertY ? -1 : 1;
+    const gxTilt = Math.sin(gamma) * sx;
+    const gyTilt = -Math.sin(beta) * sy;
+    gx = gxTilt * 1500 * GAIN;
+    gy = gyTilt * 1500 * GAIN;
+  }
+
+  // ====== Physics ======
+  const WALL_REST=0.35, WALL_TAN_DAMP=0.06, MAX_SPEED=1800;
+  function collideCircle(p){
+    const dx=p.x-cx, dy=p.y-cy;
+    const d=Math.hypot(dx,dy);
+    const limit=containerRadius - PART_R - 1;
+    if(d>limit){
+      const nx=dx/d, ny=dy/d;
+      const pen=d - limit;
+      p.x -= nx*(pen+1e-6);
+      p.y -= ny*(pen+1e-6);
+      const vn=p.vx*nx + p.vy*ny;
+      const vt_x=p.vx - vn*nx, vt_y=p.vy - vn*ny;
+      p.vx = (-WALL_REST*vn)*nx + (1-WALL_TAN_DAMP)*vt_x;
+      p.vy = (-WALL_REST*vn)*ny + (1-WALL_TAN_DAMP)*vt_y;
+    }
+  }
+  function integrate(dt){
+    if(!usingMobileInput) applyDesktopInput();
+    for(let i=0;i<P.length;i++){
+      const p=P[i];
+      p.vx += gx*dt; p.vy += gy*dt;
+      const sp=Math.hypot(p.vx,p.vy);
+      if(sp>MAX_SPEED){ const s=MAX_SPEED/sp; p.vx*=s; p.vy*=s; }
+      p.vx *= DAMP; p.vy *= DAMP;
+      p.x += p.vx*dt; p.y += p.vy*dt;
+      collideCircle(p);
+    }
+  }
+
+  function resolveParticleCollisions(iter){
+    const buckets=new Array(NX*NY); for(let i=0;i<buckets.length;i++) buckets[i]=[];
+    const put=(i)=>{ const p=P[i]; let xi=Math.floor(p.x/CELL_N); let yi=Math.floor(p.y/CELL_N);
+      if(xi<0) xi=0; if(yi<0) yi=0; if(xi>=NX) xi=NX-1; if(yi>=NY) yi=NY-1; buckets[xi*NY+yi].push(i); };
+    for(let i=0;i<P.length;i++) put(i);
+
+    const minR=2*PART_R, minR2=minR*minR;
+    for(let it=0; it<iter; it++){
+      for(let i=0;i<P.length;i++){
+        const a=P[i];
+        const cxn=Math.floor(a.x/CELL_N), cyn=Math.floor(a.y/CELL_N);
+        for(let xi=Math.max(0,cxn-1); xi<=Math.min(NX-1,cxn+1); xi++){
+          for(let yi=Math.max(0,cyn-1); yi<=Math.min(NY-1,cyn+1); yi++){
+            const arr=buckets[xi*NY+yi];
+            for(let k=0;k<arr.length;k++){
+              const j=arr[k]; if(j<=i) continue;
+              const b=P[j];
+              let dx=b.x-a.x, dy=b.y-a.y;
+              let d2=dx*dx+dy*dy;
+              if(d2===0 || d2>minR2) continue;
+              const d=Math.sqrt(d2);
+              const nx=dx/d, ny=dy/d;
+              const overlap=minR - d;
+              const corr=0.5*overlap;
+              a.x -= nx*corr; a.y -= ny*corr;
+              b.x += nx*corr; b.y += ny*corr;
+              const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+              const vn=rvx*nx + rvy*ny;
+              if(vn<0){
+                const jimp=-(1+COL_REST)*vn*0.5;
+                const jx=jimp*nx, jy=jimp*ny;
+                a.vx -= jx; a.vy -= jy;
+                b.vx += jx; b.vy += jy;
+              }
+              collideCircle(a); collideCircle(b);
+            }
+          }
+        }
+      }
+      for(let h=0; h<buckets.length; h++) buckets[h].length=0;
+      for(let i=0;i<P.length;i++) put(i);
+    }
+  }
+
+  function resolvePerCellUnique(){
+    if(!PER_CELL_UNIQUE) return;
+    const CS=Math.floor(Math.min(CSS_W,CSS_H)/GRID);
+    const ox=Math.floor(cx - GRID*CS/2);
+    const oy=Math.floor(cy - GRID*CS/2);
+    const map=new Map();
+    for(let i=0;i<P.length;i++){
+      const p=P[i];
+      const gx=Math.floor((p.x-ox)/CS);
+      const gy=Math.floor((p.y-oy)/CS);
+      const key=gx+'_'+gy;
+      if(!map.has(key)){ map.set(key,i); }
+      else{
+        const j=map.get(key);
+        const a=P[j];
+        let dx=p.x-a.x, dy=p.y-a.y;
+        let d=Math.hypot(dx,dy) || 1;
+        const push=2*PART_R - d;
+        const nx=dx/d, ny=dy/d;
+        p.x += (nx||1)*push; p.y += (ny||0)*push;
+        collideCircle(p);
+      }
+    }
+  }
+
+  // ===== Rendering =====
+  const RENDER_PARTICLE_THRESHOLD=3, RENDER_RIM_PARTICLE_THRESHOLD=1, RENDER_FOAM_SPEED_THRESHOLD=900;
+  function idx(gx,gy){ return gx*GRID+gy; }
+  function insideContainerCell(gx,gy){
+    const CS=Math.floor(Math.min(CSS_W,CSS_H)/GRID);
+    const cxn = (gx+0.5)*CS + (cx - GRID*CS/2);
+    const cyn = (gy+0.5)*CS + (cy - GRID*CS/2);
+    const dx=cxn - cx, dy=cyn - cy;
+    return (dx*dx + dy*dy) <= (containerRadius*containerRadius);
+  }
+  function renderGrid(){
+    ctx.clearRect(0,0,CSS_W,CSS_H);
+    const CS=Math.floor(Math.min(CSS_W,CSS_H)/GRID);
+    const ox=Math.floor(cx - GRID*CS/2);
+    const oy=Math.floor(cy - GRID*CS/2);
+    gridCount.fill(0); gridSpeed.fill(0);
+    for(let i=0;i<P.length;i++){
+      const p=P[i];
+      const gx = clamp(Math.floor((p.x-ox)/CS),0,GRID-1);
+      const gy = clamp(Math.floor((p.y-oy)/CS),0,GRID-1);
+      const id=idx(gx,gy);
+      gridCount[id]++; gridSpeed[id]+=Math.hypot(p.vx,p.vy);
+    }
+    for(let gx_=0; gx_<GRID; gx_++){
+      for(let gy_=0; gy_<GRID; gy_++){
+        if(!insideContainerCell(gx_,gy_)) continue;
+        const id=idx(gx_,gy_);
+        const n=gridCount[id], avg=n?gridSpeed[id]/n:0;
+        let col;
+        if(n>=RENDER_PARTICLE_THRESHOLD) col=(avg>RENDER_FOAM_SPEED_THRESHOLD)?palette.foam:palette.liquid;
+        else if(n>=RENDER_RIM_PARTICLE_THRESHOLD) col=palette.rimTrans;
+        else if(n>0) col=palette.rimLight; else continue;
+        ctx.fillStyle=col;
+        ctx.fillRect(ox+gx_*CS, oy+gy_*CS, CS, CS);
+        if(SHOW_OUTLINE){ ctx.strokeStyle='rgba(16,24,40,0.9)'; ctx.lineWidth=1; ctx.strokeRect(ox+gx_*CS+0.5, oy+gy_*CS+0.5, CS-1, CS-1); }
+      }
+    }
+    ctx.beginPath(); ctx.arc(cx, cy, containerRadius, 0, Math.PI*2); ctx.strokeStyle='#26344f'; ctx.lineWidth=2; ctx.stroke();
+  }
+  function renderBalls(){
+    ctx.clearRect(0,0,CSS_W,CSS_H);
+    ctx.beginPath(); ctx.arc(cx, cy, containerRadius, 0, Math.PI*2); ctx.strokeStyle='#26344f'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=palette.liquid;
+    for(let i=0;i<P.length;i++){ const p=P[i]; ctx.beginPath(); ctx.arc(p.x, p.y, PART_R, 0, Math.PI*2); ctx.fill(); }
+  }
+
+  // ===== UI text sync =====
+  function syncUITexts(){
+    document.documentElement.lang = (lang==='zh'?'zh-Hant':'en');
+    titleEl.textContent = T('title');
+    collapseBtn.textContent = T('collapse');
+    modeBadge.textContent = (renderMode==='grid') ? T('mode_grid') : T('mode_balls');
+    inputBadge.textContent = usingMobileInput ? T('input_phone') : T('input_pc');
+    noteText.innerHTML = T('note');
+    langLabel.textContent = T('lang');
+    langSel.querySelector('option[value="zh"]').textContent = T('zh');
+    langSel.querySelector('option[value="en"]').textContent = T('en');
+    document.getElementById('nLabel').textContent = T('n');
+    colorLabel.textContent = T('color');
+    document.getElementById('rLabel').textContent = T('r');
+    document.getElementById('iterLabel').textContent = T('iter');
+    document.getElementById('restLabel').textContent = T('rest');
+    document.getElementById('gridLabel').textContent = T('grid');
+    document.getElementById('gLabel').textContent = T('g');
+    document.getElementById('dLabel').textContent = T('d');
+    invertLabel.textContent = T('invert');
+    document.getElementById('uniqLabel').textContent = T('uniq');
+    document.getElementById('outlineLabel').textContent = T('outline');
+    toggleModeBtn.textContent = T('toggleRender');
+    resetBtn.textContent = T('reset');
+    enableSensorsBtn.textContent = T('enableSensors');
+    calibBtn.textContent = T('calib');
+    desktopInputBtn.textContent = T('desktopInput');
+    zeroG.textContent = T('zeroG');
+    loadLabel.textContent = T('load');
+    uniqVal.textContent = PER_CELL_UNIQUE ? T('on') : T('off');
+    outlineVal.textContent = SHOW_OUTLINE ? T('on') : T('off');
+    themeBadge.textContent = (baseColor === '#0078ff') ? T('theme_default') : T('theme_custom');
+    reopenBtn.textContent = T('expand');
+  }
+
+  // ===== UI values sync =====
+  function syncUIValues(){
+    nVal.textContent=NUM.toString();
+    rVal.textContent=PART_R.toString();
+    iterVal.textContent=COL_ITERS.toString();
+    restVal.textContent=COL_REST.toFixed(2);
+    gridVal.textContent=GRID.toString();
+    gVal.textContent=GAIN.toFixed(1);
+    dVal.textContent=DAMP.toFixed(3);
+    modeBadge.textContent = (renderMode==='grid') ? T('mode_grid') : T('mode_balls');
+    inputBadge.textContent = usingMobileInput ? T('input_phone') : T('input_pc');
+  }
+
+  // ===== UI handlers =====
+  langSel.value = lang;
+  langSel.addEventListener('change', ()=>{ lang = langSel.value; localStorage.setItem('lang', lang); syncUITexts(); });
+
+  colorPicker.value = baseColor;
+  colorPicker.addEventListener('input', ()=> setBaseColor(colorPicker.value));
+
+  const collapsedSaved = localStorage.getItem('sidebarCollapsed') === '1';
+  function setCollapsed(v){ if(v){ wrap.classList.add('collapsed'); localStorage.setItem('sidebarCollapsed','1'); } else { wrap.classList.remove('collapsed'); localStorage.setItem('sidebarCollapsed','0'); } resize(); }
+  setCollapsed(collapsedSaved);
+  collapseBtn.addEventListener('click', ()=> setCollapsed(true));
+  reopenBtn.addEventListener('click', ()=> setCollapsed(false));
+
+  invXEl.addEventListener('change', ()=>{ invertX = invXEl.checked; localStorage.setItem('invX', invertX?'1':'0'); });
+  invYEl.addEventListener('change', ()=>{ invertY = invYEl.checked; localStorage.setItem('invY', invertY?'1':'0'); });
+
+  nRange.addEventListener('input',()=>{ NUM=parseInt(nRange.value,10); nVal.textContent=NUM; reseed(); });
+  rRange.addEventListener('input',()=>{ PART_R=parseInt(rRange.value,10); rVal.textContent=PART_R; rebuildNeighborGrid(); reseed(); });
+  iterRange.addEventListener('input',()=>{ COL_ITERS=parseInt(iterRange.value,10); iterVal.textContent=COL_ITERS; });
+  restRange.addEventListener('input',()=>{ COL_REST=parseFloat(restRange.value); restVal.textContent=COL_REST.toFixed(2); });
+  gridRange.addEventListener('input',()=>{ GRID=parseInt(gridRange.value,10); rebuildGridBuffers(); syncUIValues(); });
+  gRange.addEventListener('input',()=>{ GAIN=parseFloat(gRange.value); gy=1500*GAIN; syncUIValues(); });
+  dRange.addEventListener('input',()=>{ DAMP=parseFloat(dRange.value); syncUIValues(); });
+  uniqToggle.addEventListener('change',()=>{ PER_CELL_UNIQUE=uniqToggle.checked; uniqVal.textContent=PER_CELL_UNIQUE?T('on'):T('off'); });
+  outlineToggle.addEventListener('change',()=>{ SHOW_OUTLINE=outlineToggle.checked; outlineVal.textContent=SHOW_OUTLINE?T('on'):T('off'); });
+
+  let renderMode='grid';
+  toggleModeBtn.addEventListener('click',()=>{ renderMode=(renderMode==='grid')?'balls':'grid'; syncUIValues(); });
+  resetBtn.addEventListener('click',()=>reseed());
+  enableSensorsBtn.addEventListener('click',()=>requestMotionPermission());
+  calibBtn.addEventListener('click',()=>calibrateBaseline());
+  desktopInputBtn.addEventListener('click',()=>{ usingMobileInput=false; syncUITexts(); syncUIValues(); });
+  zeroG.addEventListener('click',()=>{ gx=0; gy=0; });
+
+  // ===== Loop =====
+  let lastT=performance.now(), smoothedCPU=0, fpsSm=0;
+  function loop(ts){
+    const dt=Math.min(0.033,(ts-lastT)/1000); lastT=ts;
+    const t0=performance.now();
+    integrate(dt);
+    resolveParticleCollisions(COL_ITERS);
+    resolvePerCellUnique();
+    if(renderMode==='grid') renderGrid(); else renderBalls();
+    const t1=performance.now();
+    const cpu=clamp((t1-t0)/(dt*1000)*100,0,100); smoothedCPU=smoothedCPU*0.9+cpu*0.1; cpuMeter.style.width=`${smoothedCPU.toFixed(0)}%`;
+    const fps=1/dt; fpsSm=fpsSm*0.9+fps*0.1; fpsLabel.textContent=`FPS: ${fpsSm.toFixed(0)}`;
+    requestAnimationFrame(loop);
+  }
+
+  // ===== Start =====
+  resize(); reseed(); syncUITexts(); syncUIValues(); requestAnimationFrame(loop);
+})();</script>
+</body>
+</html>
