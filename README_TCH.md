@@ -4,7 +4,8 @@
 
 ## 線上預覽
 
-[fluid Simulator | JingShing](https://jingshing.com/fluidsim/)
+* [fluid Simulator | JingShing blog](https://jingshing.com/fluidsim/)
+* [Github page]([流體重力模擬](https://jingshing.github.io/Fluid-Simulator-Online/))
 
 ## 如何使用
 
