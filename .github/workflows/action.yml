@@ -1,0 +1,29 @@
+name: Deploy Static Website
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Check out the repository
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    # Step 2: Rename web-fluidsim.html to index.html
+    - name: Rename web-fluidsim.html to index.html
+      run: mv web-fluidsim.html index.html
+
+    # Step 3: Deploy to GitHub Pages
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./  # Adjust if your files are in a subdirectory
